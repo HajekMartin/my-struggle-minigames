@@ -30,22 +30,39 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 function render(next: LobbyState) {
   state = next;
   show('lobby');
+  if (element('lobby-code').textContent !== next.code) {
+    element('copy-code').textContent = 'Kopírovat';
+    element('copy-status').textContent = '';
+  }
   element('lobby-code').textContent = next.code;
-  element('lobby-title').textContent = next.started ? 'Hra spuštěna' : 'Čekáme na partu';
+  element('lobby-title').textContent = next.started ? 'Hra spuštěna' : 'Lobby';
   element('count').textContent = `${next.players.length} / 8`;
   element('players').replaceChildren(...next.players.map(p => {
     const row = document.createElement('li');
+    row.classList.toggle('is-self', p.id === player?.id);
     const label = document.createElement('span'); label.className = 'player-label';
     const initial = document.createElement('span'); initial.className = 'initial'; initial.textContent = [...p.name][0]?.toUpperCase() ?? '';
     const name = document.createElement('span'); name.textContent = p.name;
     label.append(initial, name);
     if (p.id === player?.id) { const you = document.createElement('span'); you.className = 'you'; you.textContent = '(vy)'; label.append(you); }
+    if (p.id === next.adminId) { const admin = document.createElement('span'); admin.className = 'admin-badge'; admin.textContent = 'Správce'; label.append(admin); }
     const status = document.createElement('span'); status.className = `status${p.ready ? ' is-ready' : ''}`;
-    status.textContent = !p.connected ? 'Odpojen/a · čekáme na návrat' : p.ready ? 'Připraven/a' : 'Čeká na připravenost';
-    row.append(label, status); return row;
+    const statusIcon = document.createElement('span'); statusIcon.className = 'status-icon'; statusIcon.setAttribute('aria-hidden', 'true');
+    statusIcon.textContent = p.connected && p.ready ? '✓' : '○';
+    status.append(statusIcon, document.createTextNode(!p.connected ? 'Odpojen/a · čekáme na návrat' : p.ready ? 'Připraven' : 'Čeká'));
+    const actions = document.createElement('span'); actions.className = 'player-actions'; actions.append(status);
+    if (next.adminId === player?.id && p.id !== player.id) {
+      const kick = document.createElement('button'); kick.type = 'button'; kick.className = 'kick-button';
+      kick.textContent = 'Vyhodit'; kick.setAttribute('aria-label', `Vyhodit hráče ${p.name}`);
+      kick.addEventListener('click', () => { if (room && !busy) room.send('kick', p.id); });
+      actions.append(kick);
+    }
+    row.append(label, actions); return row;
   }));
   const own = next.players.find(p => p.id === player?.id);
-  element('ready').textContent = own?.ready ? 'Ještě nejsem připraven/a' : 'Jsem připraven/a';
+  element('ready').textContent = own?.ready ? 'Zrušit připravenost' : 'Jsem připraven/a';
+  element('ready').classList.toggle('ready-confirmed', !!own?.ready);
+  element('ready').setAttribute('aria-pressed', String(!!own?.ready));
   element('ready').hidden = next.started;
   element('lobby-hint').textContent = next.started ? 'Všichni byli připraveni. Hra spuštěna.' : next.players.length < 2 ? 'Pozvěte alespoň jednoho dalšího hráče pomocí kódu.' : 'Hra se spustí automaticky, až budou všichni připojení a připravení.';
   setBusy(busy);
@@ -58,6 +75,7 @@ async function join(action: 'create' | 'join' | 'resume', code?: string) {
   joined.reconnection.enabled = false;
   room = joined;
   joined.onMessage<LobbyState>('lobby', next => { if (room === joined) render(next); });
+  joined.onMessage<string>('error', message => { if (room === joined) error(message); });
   joined.onError((_code, message) => error(message || 'Chyba připojení.'));
   joined.onLeave(code => {
     if (room !== joined) return;
@@ -68,6 +86,10 @@ async function join(action: 'create' | 'join' | 'resume', code?: string) {
     }
     if (code === 4001) { connection(); error('Lobby je otevřena v jiné kartě. Tuto stránku můžete zavřít nebo obnovit.'); return; }
     if (code === 4002) { error('Platnost přihlášení vypršela. Obnovte stránku a zadejte jméno.'); return; }
+    if (code === 4004) {
+      clearTimeout(retryTimer);
+      state = undefined; connection(); show('choices'); error('Správce vás vyhodil z lobby.'); return;
+    }
     connection('Spojení bylo přerušeno. Pokoušíme se o návrat do lobby (nejvýše 30 sekund).');
     retryUntil = Date.now() + 30_000;
     retryTimer = setTimeout(retry, 500);
@@ -113,6 +135,18 @@ element('ready').addEventListener('click', () => {
 element('leave').addEventListener('click', () => {
   if (!room) return;
   setBusy(true); room.send('leave');
+});
+element('copy-code').addEventListener('click', async () => {
+  const code = state?.code;
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    if (state?.code !== code) return;
+    element('copy-code').textContent = 'Zkopírováno';
+    element('copy-status').textContent = 'Kód lobby byl zkopírován do schránky.';
+  } catch {
+    error('Kód se nepodařilo zkopírovat. Označte jej a zkopírujte ručně.');
+  }
 });
 window.addEventListener('pagehide', () => clearTimeout(retryTimer));
 

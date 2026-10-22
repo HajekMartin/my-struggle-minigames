@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { Room } from '@colyseus/sdk';
 
 async function player(browser: Browser, name: string) {
   const context = await browser.newContext();
@@ -15,7 +16,7 @@ async function create(page: Page) {
   return (await page.locator('#lobby-code').textContent())!;
 }
 async function join(page: Page, code: string) {
-  await page.getByLabel('Kód lobby').fill(code);
+  await page.getByLabel('Kód lobby', { exact: true }).fill(code);
   await page.getByRole('button', { name: 'Připojit se do lobby' }).click();
 }
 async function ready(page: Page) { await page.getByRole('button', { name: 'Jsem připraven/a', exact: true }).click(); }
@@ -33,7 +34,7 @@ test('dva hráči, reset ready, reload, cookie, spuštění a zákaz nových hr�
     expect(cookie.value).toMatch(/^[a-f0-9]{64}$/);
     expect(await a.page.evaluate(() => document.cookie)).not.toContain('session=');
     await ready(a.page);
-    await expect(a.page.getByRole('button', { name: 'Ještě nejsem připraven/a' })).toBeVisible();
+    await expect(a.page.getByRole('button', { name: 'Zrušit připravenost' })).toBeVisible();
     await join(b.page, `  ${code.toLowerCase()}  `);
     await expect(a.page.locator('#players li')).toHaveCount(2);
     await expect(a.page.getByRole('button', { name: 'Jsem připraven/a', exact: true })).toBeVisible();
@@ -80,7 +81,7 @@ test('výpadek blokuje start, návrat a odebrání po 30 sekundách', async ({ b
     await b.page.goto('about:blank');
     await expect(a.page.locator('#players')).toContainText('Odpojen/a');
     await ready(a.page);
-    await expect(a.page.getByRole('heading', { name: 'Čekáme na partu' })).toBeVisible();
+    await expect(a.page.getByRole('heading', { name: 'Lobby', exact: true })).toBeVisible();
     await b.page.goto('/');
     await expect(b.page.locator('#players li')).toHaveCount(2);
     await expect(b.page.getByRole('button', { name: 'Jsem připraven/a', exact: true })).toBeVisible();
@@ -120,4 +121,58 @@ test('validace jména, plná lobby a bezpečné zobrazení', async ({ browser, r
     await expect(players[0].page.locator('#players li')).toHaveCount(8);
     for (const p of players) await p.page.getByRole('button', { name: 'Opustit lobby' }).click();
   } finally { await close(...players.map(p => p.context)); }
+});
+
+test('správce může vyhodit hráče, běžný hráč nemůže; role přežije reload a přejde po odchodu', async ({ browser }) => {
+  const a = await player(browser, 'Správce');
+  const b = await player(browser, 'Hráč');
+  const c = await player(browser, 'Host');
+  try {
+    // Keep access to the real guest socket to test a forged kick independently of the UI.
+    await b.context.addInitScript(() => {
+      const NativeSocket = window.WebSocket;
+      window.WebSocket = class extends NativeSocket {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols);
+          (window as unknown as { testSocket: WebSocket }).testSocket = this;
+        }
+      };
+    });
+    await b.page.reload();
+    const code = await create(a.page);
+    await join(b.page, code); await join(c.page, code);
+    await expect(a.page.locator('#players li')).toHaveCount(3);
+    await expect(b.page.getByRole('button', { name: /Vyhodit hráče/ })).toHaveCount(0);
+    await a.page.reload();
+    await expect(a.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true })).toBeVisible();
+    const admin = (await (await a.context.request.get('/api/me')).json()).player;
+    // Use the SDK encoder, then send as the authenticated non-admin over its WebSocket.
+    const encoder = new Room('lobby');
+    let bytes: number[] = [];
+    encoder.connection = { isOpen: true, send: (data: Uint8Array) => { bytes = Array.from(data); } } as unknown as Room['connection'];
+    encoder.send('kick', admin.id);
+    await b.page.evaluate(data => (window as unknown as { testSocket: WebSocket }).testSocket.send(new Uint8Array(data)), bytes);
+    await expect(b.page.getByRole('alert')).toContainText('pouze správce');
+    await expect(a.page.locator('#players li')).toHaveCount(3);
+    await ready(b.page);
+    await a.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true }).click();
+    await expect(c.page.getByRole('alert')).toHaveText('Správce vás vyhodil z lobby.');
+    await expect(c.page.locator('#choices')).toBeVisible();
+    await expect(a.page.locator('#players li')).toHaveCount(2);
+    await expect(b.page.getByRole('button', { name: 'Jsem připraven/a', exact: true })).toBeVisible();
+    expect((await (await c.context.request.get('/api/me')).json()).lobbyCode).toBeNull();
+    await c.page.reload(); await expect(c.page.locator('#choices')).toBeVisible();
+    await join(c.page, code); await expect(c.page.locator('#lobby')).toBeVisible();
+    await c.page.goto('about:blank');
+    await expect(a.page.locator('#players')).toContainText('Odpojen/a');
+    await a.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true }).click();
+    await expect(a.page.locator('#players li')).toHaveCount(2);
+    await c.page.goto('/'); await expect(c.page.locator('#choices')).toBeVisible();
+    await join(c.page, code); await expect(c.page.locator('#lobby')).toBeVisible();
+    await a.page.getByRole('button', { name: 'Opustit lobby' }).click();
+    await expect(b.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true })).toBeVisible();
+    await b.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true }).click();
+    await expect(c.page.getByRole('alert')).toHaveText('Správce vás vyhodil z lobby.');
+    await b.page.getByRole('button', { name: 'Opustit lobby' }).click();
+  } finally { await close(a.context, b.context, c.context); }
 });

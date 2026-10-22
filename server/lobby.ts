@@ -12,11 +12,13 @@ interface Member { player: LobbyPlayer; client?: Client; session: Session; timeo
 export class LobbyRoom extends Room {
   code = '';
   started = false;
+  adminId: string | null = null;
   members = new Map<string, Member>();
   private emptyTimeout?: NodeJS.Timeout;
 
-  onCreate(options: { creationKey?: string }) {
+  onCreate(options: { creationKey?: string; adminId?: string }) {
     if (options.creationKey !== creationKey) throw new ServerError(403, 'Lobby vytvářejte tlačítkem Vytvořit lobby.');
+    this.adminId = options.adminId ?? null;
     this.autoDispose = false;
     // The eight-player limit counts identities, including disconnected members.
     // A replacement socket must be allowed even when all eight seats are occupied.
@@ -42,6 +44,19 @@ export class LobbyRoom extends Room {
       if (!member) return;
       this.remove(member.player.id);
       void client.leave(4000);
+    });
+    this.onMessage('kick', (client, targetId: unknown) => {
+      const admin = this.ownMember(client);
+      if (!admin || !sessionValid(admin.session) || admin.player.id !== this.adminId) {
+        client.send('error', 'Hráče může vyhodit pouze správce lobby.');
+        return;
+      }
+      if (typeof targetId !== 'string' || targetId === admin.player.id) return;
+      const target = this.members.get(targetId);
+      if (!target) return;
+      this.remove(targetId);
+      // Remove membership first so a late close event cannot reserve a reconnect seat.
+      void target.client?.leave(4004);
     });
   }
 
@@ -115,6 +130,7 @@ export class LobbyRoom extends Room {
     clearTimeout(member.expiry);
     this.members.delete(id);
     roomByPlayer.delete(id);
+    if (this.adminId === id) this.adminId = this.members.keys().next().value ?? null;
     this.resetReady();
     this.publish();
     if (!this.members.size) {
@@ -125,7 +141,7 @@ export class LobbyRoom extends Room {
 
   private resetReady() { for (const member of this.members.values()) member.player.ready = false; }
   private publish() {
-    const state: LobbyState = { code: this.code, started: this.started, players: [...this.members.values()].map(m => m.player) };
+    const state: LobbyState = { code: this.code, started: this.started, adminId: this.adminId, players: [...this.members.values()].map(m => m.player) };
     this.broadcast('lobby', state);
   }
 

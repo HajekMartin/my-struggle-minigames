@@ -52,7 +52,7 @@ app.post('/api/lobby', async (req, res) => {
       room = target;
     } else if (req.body?.action === 'create') {
       if (!room) {
-        const listing = await matchMaker.createRoom('lobby', { creationKey });
+        const listing = await matchMaker.createRoom('lobby', { creationKey, adminId: session.id });
         room = [...roomsByCode.values()].find(candidate => candidate.roomId === listing.roomId)!;
       }
     } else if (req.body?.action !== 'resume' || !room) {

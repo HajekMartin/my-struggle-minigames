@@ -1,4 +1,4 @@
-# Party lobby
+# My Struggle minigames
 
 Jednoduché české lobby pro 2–8 hráčů. Node.js v jednom procesu poskytuje frontend, HTTP API i Colyseus WebSockety na stejném portu. Lobby jsou pouze v paměti; hráči a 24hodinové session zůstávají v lokálním SQLite souboru.
 
@@ -35,6 +35,7 @@ Hosting musí podporovat dlouhodobě běžící **jeden Node.js proces a WebSock
 
 ## Chování
 
+- Zakladatel je správce lobby a může vyhodit ostatní hráče. Oprávnění ověřuje server podle session. Vyhození ihned odebere členství a resetuje ready všech; vyhozený hráč se automaticky nevrací, může ale ručně znovu zadat kód. Po odchodu správce přejde role na nejdéle přítomného zbývajícího hráče; při výpadku zůstává správci 30sekundová lhůta na návrat.
 - Server generuje kód, ověřuje členství a povoluje pouze změnu vlastní připravenosti.
 - Příchod nebo odebrání hráče resetuje připravenost všech. Alespoň dva připojení a připravení hráči automaticky spustí hru; zatím se zobrazí pouze „Hra spuštěna“.
 - Odpojený hráč zůstává 30 sekund v lobby, je nepřipravený a blokuje start. Reload i automatický návrat používají stejnou HttpOnly cookie. Lhůta začíná při zjištění výpadku serverem; neaktivní spojení kontroluje WebSocket heartbeat.
@@ -49,9 +50,9 @@ npx playwright install chromium
 npm test
 ```
 
-Testy provedou build, spustí dočasný server na portu 3100 s oddělenou databází v `test-results/` a projdou aplikaci v oddělených browser kontextech. Ověřují dva hráče a ready, automatický start, reload se zachováním identity, převzetí druhou kartou bez duplicity, reset ready, automatický návrat po výpadku sítě a odebrání po 30 sekundách, mazání prázdné lobby, zákaz vstupu do spuštěné hry, kapacitu osmi hráčů, validaci jména, bezpečné zobrazení textu a atributy session cookie. Další test na portu 3101 ověřuje zachování session a zánik lobby po restartu, hash tokenu v SQLite, expiraci session a produkční cookie Secure.
+Testy provedou build, spustí dočasný server na portu 3100 s oddělenou databází v `test-results/` a projdou aplikaci v oddělených browser kontextech. Ověřují dva hráče a ready, automatický start, reload se zachováním identity, převzetí druhou kartou bez duplicity, reset ready, automatický návrat po výpadku sítě a odebrání po 30 sekundách, mazání prázdné lobby, zákaz vstupu do spuštěné hry, kapacitu osmi hráčů, validaci jména, bezpečné zobrazení textu a atributy session cookie. Test správce ověřuje vyhození připojeného i odpojeného hráče, odmítnutí podvržené zprávy běžného hráče, zachování role při reloadu a předání role při odchodu. Další test na portu 3101 ověřuje zachování session a zánik lobby po restartu, hash tokenu v SQLite, expiraci session a produkční cookie Secure.
 
-Ověřeno 22. 10. 2026: build i všechny čtyři testy úspěšně prošly v Chromiu. Cloudové nasazení ani provoz za skutečnou HTTPS proxy nebyly prováděny.
+Ověřeno 22. 10. 2026: build i všechny testy úspěšně prošly v Chromiu. Cloudové nasazení ani provoz za skutečnou HTTPS proxy nebyly prováděny.
 
 ## Soubory
 
