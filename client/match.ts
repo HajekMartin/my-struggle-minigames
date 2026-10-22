@@ -1,4 +1,6 @@
 import type { MatchState, RoundScore, TotalScore } from '../shared/types.js';
+import type { JsonValue } from '../shared/types.js';
+import { renderRace } from './race-manager.js';
 
 const element = (id: string) => document.getElementById(id)!;
 let current: MatchState | null = null;
@@ -12,10 +14,12 @@ export function updateCountdown() {
   if (!current) return;
   const seconds = Math.max(0, Math.ceil((current.phaseEndsAt - serverTime - (performance.now() - receivedAt)) / 1000));
   element('phase-time').textContent = `${seconds} s`;
+  element('race-countdown').textContent = current.phase === 'rules' ? 'Připravte se' : current.phase === 'countdown' ? String(seconds) : '';
 }
 
-export function renderMatch(match: MatchState | null, isAdmin: boolean) {
+export function renderMatch(match: MatchState | null, isAdmin: boolean, ownId: string, send: (data: JsonValue) => void) {
   current = match;
+  renderRace(match, ownId, send);
   element('match-panel').hidden = !match;
   if (!match) return;
   const game = match.order[match.roundIndex];
@@ -40,7 +44,7 @@ export function renderMatch(match: MatchState | null, isAdmin: boolean) {
     if (match.phase === 'finalResults' && score.place === 1) row.className = 'winner-row';
     const values = [String(score.place) + '.', names.get(score.playerId) ?? '',
       score.points === undefined ? '—' : number.format(score.points), number.format(score.total),
-      score.unfinished === undefined ? score.place === 1 ? 'Vítěz' : '—' : score.unfinished ? 'Nedokončil/a' : score.value === undefined ? 'Dokončil/a' : String(score.value)];
+      score.unfinished === undefined ? score.place === 1 ? 'Vítěz' : '—' : score.value !== undefined ? String(score.value) : score.unfinished ? 'Nedokončil/a' : 'Dokončil/a'];
     for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
     return row;
   }));

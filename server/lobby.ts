@@ -101,6 +101,9 @@ export class LobbyRoom extends Room {
         },
         isAdmin: id => id === this.adminId,
         changed: () => this.publish(),
+        updated: data => {
+          if (this.match) this.broadcast('minigameUpdate', { matchId: this.match.state.id, roundIndex: this.match.state.roundIndex, data });
+        },
         error: message => { this.matchError = message; },
         completed: state => {
           try { saveMatch(this.code, this.match!.startedAt, state); }
@@ -184,6 +187,7 @@ export class LobbyRoom extends Room {
     member.client = undefined;
     member.player.connected = false;
     member.player.ready = false;
+    this.match?.disconnected(member.player.id);
     member.timeout = setTimeout(() => this.remove(member.player.id), 30_000);
     this.publish();
   }
@@ -199,6 +203,7 @@ export class LobbyRoom extends Room {
     clearTimeout(member.timeout);
     clearTimeout(member.expiry);
     this.members.delete(id);
+    this.match?.disconnected(id);
     roomByPlayer.delete(id);
     if (this.adminId === id) this.adminId = this.members.keys().next().value ?? null;
     this.resetReady();

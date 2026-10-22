@@ -64,7 +64,7 @@ test('restart zachová SQLite session, zruší lobby; expirace a Secure v produk
   }
 });
 
-test('produkční prázdný registr zobrazí chybu a zápas se nespustí', async ({ browser }) => {
+test('produkční registr spustí skutečný závod a nenabízí vývojový test', async ({ browser }) => {
   for (const suffix of ['', '-wal', '-shm']) await rm(database + suffix, { force: true });
   let server: ChildProcess | undefined = await start();
   const contexts = [await browser.newContext(), await browser.newContext()];
@@ -87,9 +87,9 @@ test('produkční prázdný registr zobrazí chybu a zápas se nespustí', async
     await expect(pages[0].locator('#players li')).toHaveCount(2);
     for (const page of pages) await page.getByRole('button', { name: 'Jsem připraven/a', exact: true }).click();
     for (const page of pages) {
-      await expect(page.getByRole('alert')).toContainText('není dostupná žádná minihra');
-      await expect(page.locator('#match-panel')).toBeHidden();
-      await expect(page.getByRole('button', { name: 'Jsem připraven/a', exact: true })).toBeVisible();
+      await expect(page.locator('#minigame-name')).toHaveText('Závod aut');
+      await expect(page.locator('#match-panel')).toBeVisible();
+      await expect(page.locator('#dev-finish')).toBeHidden();
     }
     const db = new DatabaseSync(database);
     try { expect(db.prepare('SELECT count(*) AS count FROM matches').get()!.count).toBe(0); }

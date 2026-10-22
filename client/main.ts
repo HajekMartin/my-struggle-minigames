@@ -1,5 +1,6 @@
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
-import type { LobbyState, Player } from '../shared/types.js';
+import type { JsonValue, LobbyState, Player } from '../shared/types.js';
+import { renderRace, stopRace } from './race-manager.js';
 import { MAX_ROUNDS } from '../shared/config.js';
 import { renderMatch, syncMatchClock, updateCountdown } from './match.js';
 
@@ -43,7 +44,7 @@ function render(next: LobbyState) {
   element('lobby-title').textContent = next.started ? 'Hra spuštěna' : 'Lobby';
   element<HTMLSelectElement>('round-count').value = String(next.roundCount);
   element('lobby-settings').hidden = next.started;
-  renderMatch(next.match, next.adminId === player?.id);
+  renderMatch(next.match, next.adminId === player?.id, player?.id ?? '', sendGame);
   element('count').textContent = `${next.players.length} / 8`;
   element('players').replaceChildren(...next.players.map(p => {
     const row = document.createElement('li');
@@ -84,10 +85,17 @@ async function join(action: 'create' | 'join' | 'resume', code?: string) {
   joined.reconnection.enabled = false;
   room = joined;
   joined.onMessage<LobbyState>('lobby', next => { if (room === joined) render(next); });
+  joined.onMessage<{ matchId: string; roundIndex: number; data: { [key: string]: JsonValue } }>('minigameUpdate', update => {
+    const match = state?.match;
+    if (room !== joined || !match || match.id !== update.matchId || match.roundIndex !== update.roundIndex || !match.gameData || typeof match.gameData !== 'object' || Array.isArray(match.gameData)) return;
+    match.gameData = { ...match.gameData, ...update.data };
+    renderRace(match, player?.id ?? '', sendGame);
+  });
   joined.onMessage<string>('error', message => { if (room === joined) error(message); });
   joined.onError((_code, message) => error(message || 'Chyba připojení.'));
   joined.onLeave(code => {
     if (room !== joined) return;
+    stopRace();
     room = undefined;
     setBusy(false);
     if (code === 4000) {
@@ -105,6 +113,10 @@ async function join(action: 'create' | 'join' | 'resume', code?: string) {
   });
   joined.send('sync');
   error(); connection();
+}
+
+function sendGame(data: JsonValue) {
+  if (room && state?.match && !busy) room.send('minigame', { matchId: state.match.id, roundIndex: state.match.roundIndex, data });
 }
 
 async function retry() {
@@ -155,6 +167,7 @@ element('leave').addEventListener('click', () => {
   if (!room) return;
   setBusy(true); room.send('leave');
 });
+element('race-leave').addEventListener('click', () => element('leave').click());
 element('copy-code').addEventListener('click', async () => {
   const code = state?.code;
   if (!code) return;
@@ -168,7 +181,7 @@ element('copy-code').addEventListener('click', async () => {
   }
 });
 const countdownTimer = setInterval(updateCountdown, 200);
-window.addEventListener('pagehide', () => { clearTimeout(retryTimer); clearInterval(countdownTimer); });
+window.addEventListener('pagehide', () => { stopRace(); clearTimeout(retryTimer); clearInterval(countdownTimer); });
 
 void run(async () => {
   const me = await api<{ player: Player | null; lobbyCode: string | null }>('/api/me');

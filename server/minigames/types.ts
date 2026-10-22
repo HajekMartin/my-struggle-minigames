@@ -5,11 +5,15 @@ export interface MinigameContext {
   isConnected(playerId: string): boolean;
   isAdmin(playerId: string): boolean;
   publish(data: JsonValue): void;
+  // Shallow public-state update, sent separately from the lobby (e.g. realtime snapshots).
+  update(data: { [key: string]: JsonValue }): void;
   complete(): void;
 }
 
 export interface RunningMinigame {
+  prepare?(): void;
   start(): void;
+  onDisconnect?(playerId: string): void;
   onMessage?(playerId: string, message: JsonValue): void;
   // Always evaluate every participant, including disconnected and unfinished players.
   finish(): ResultGroup[];

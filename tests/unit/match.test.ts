@@ -130,8 +130,10 @@ test('vývojová minihra přijme předem určené výsledky pouze od správce', 
 
 test('registr nabízí testovací minihru výhradně v development', () => {
   for (const mode of ['production', 'test', 'development']) {
-    const result = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
-      "import { minigames } from './server/minigames/index.ts'; console.log(JSON.stringify(minigames.map(g => g.id)))"], { env: { ...process.env, NODE_ENV: mode }, encoding: 'utf8' });
-    assert.deepEqual(JSON.parse(result), mode === 'development' ? ['development-test'] : []);
+    for (const fixture of ['0', '1']) {
+      const result = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
+        "import { minigames } from './server/minigames/index.ts'; console.log(JSON.stringify(minigames.map(g => g.id)))"], { env: { ...process.env, NODE_ENV: mode, MINIGAME_TEST_ONLY: fixture }, encoding: 'utf8' });
+      assert.deepEqual(JSON.parse(result), mode === 'development' && fixture === '1' ? ['development-test'] : ['car-race']);
+    }
   }
 });

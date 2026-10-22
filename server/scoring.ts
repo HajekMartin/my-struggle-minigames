@@ -6,10 +6,13 @@ export function scoreRound(participantIds: readonly string[], groups: ResultGrou
   const seen = new Set<string>();
   const scores: RoundScore[] = [];
   let offset = 0;
-  for (const [index, group] of groups.entries()) {
+  let unfinishedSeen = false;
+  for (const group of groups) {
     if (!group || !Array.isArray(group.players) || !group.players.length ||
         (group.unfinished !== undefined && typeof group.unfinished !== 'boolean') ||
-        (group.unfinished && index !== groups.length - 1)) throw new Error('Neplatné umístění nebo nedokončivší hráči.');
+        (unfinishedSeen && !group.unfinished)) throw new Error('Neplatné umístění nebo nedokončivší hráči.');
+    // Some games rank unfinished players by valid progress, but all remain behind finishers.
+    if (group.unfinished) unfinishedSeen = true;
     const points = participantIds.length - offset - (group.players.length + 1) / 2;
     for (const id of group.players) {
       if (!expected.has(id) || seen.has(id)) throw new Error('Každý účastník musí být ve výsledcích právě jednou.');

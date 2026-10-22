@@ -51,16 +51,27 @@ Pořadí se jednou sestaví zamícháním celého registru; po jeho vyčerpání
 
 `matches` v SQLite obsahuje jeden záznam na dokončený zápas: čas, lobby kód a JSON se snímkem účastníků, pořadím miniher, výsledky kol a konečným skóre. Jediný INSERT je atomický a ID zápasu je primární klíč. Historie nemá vlastní obrazovku ani API.
 
-**Zatím nejsou implementovány skutečné minihry.** Pouze `NODE_ENV=development` registruje `development-test`. V produkci je seznam prázdný a ready všech zobrazí srozumitelnou chybu bez spuštění zápasu. Vývojový test se sám vyhodnotí po 5 sekundách; správce ho může ukončit dříve tlačítkem. První dva připojení účastníci sdílejí první místo, ostatní následují v pořadí účastníků; odpojení skončí společně jako nedokončivší.
+V registru je skutečná minihra **Závod aut** (`car-race`). Pouze `NODE_ENV=development` navíc registruje `development-test`. Hráči si minihry nevybírají; o pořadí rozhoduje server. Vývojový test se sám vyhodnotí po 5 sekundách; správce ho může ukončit dříve tlačítkem. První dva připojení účastníci sdílejí první místo, ostatní následují v pořadí účastníků; odpojení skončí společně jako nedokončivší.
 
 Pro přidání minihry:
 
 1. Implementujte `MinigameDefinition` z `server/minigames/types.ts` a přidejte ji do pole v `server/minigames/index.ts`. Povinné jsou ID, název, pravidla a konečný kladný `timeLimitMs`.
-2. `create(context)` vytvoří jednu instanci pro kolo. `start()` zahájí vlastní logiku; `onMessage(playerId, data)` přijímá zprávy již ověřeného účastníka. `context.publish()` zveřejní JSON stavu. Budoucí vlastní vykreslení patří do klienta, nikoliv do společného bodování.
-3. `context.complete()` požádá o předčasné ukončení. Při něm nebo při pevném serverovém limitu systém zavolá `finish()`. Vraťte seřazené skupiny `ResultGroup[]`: `{ players: [id1, id2], values: { [id1]: '12,3 s' } }` znamená dělené místo. Uveďte každého uzamčeného účastníka právě jednou; účastníky bez platného výsledku dejte do poslední skupiny s `unfinished: true`. Vlastní platný výsledek může přetrvat i po odpojení; rozhoduje konkrétní minihra.
+2. `create(context)` vytvoří jednu instanci při zobrazení pravidel. Volitelné `prepare()` připraví prostředí před společným odpočtem. `start()` zahájí vlastní logiku až po odpočtu; `onMessage(playerId, data)` přijímá zprávy již ověřeného účastníka. `context.publish()` zveřejní celý JSON stavu, `context.update()` odešle jen měnící se část a zároveň udržuje úplný snímek pro obnovení stránky. Volitelné `onDisconnect(playerId)` přijme odpojení ihned; běžná pravidla lobby tím nejsou změněna. Budoucí vlastní vykreslení patří do klienta, nikoliv do společného bodování.
+3. `context.complete()` požádá o předčasné ukončení. Při něm nebo při pevném serverovém limitu systém zavolá `finish()`. Vraťte seřazené skupiny `ResultGroup[]`: `{ players: [id1, id2], values: { [id1]: '12,3 s' } }` znamená dělené místo. Uveďte každého uzamčeného účastníka právě jednou; nedokončivší označte `unfinished: true` a zařaďte je za dokončivší. Pokud mají platný postup, mohou mít různá umístění; účastníky bez platného výsledku dejte do společné poslední skupiny. Vlastní platný výsledek může přetrvat i po odpojení; rozhoduje konkrétní minihra.
 4. `dispose()` musí zrušit všechny vlastní časovače, posluchače a další prostředky. Systém ho volá po vyhodnocení, při chybě a při zániku místnosti; svůj limit a přechodové časovače uklízí sám.
 
 Herní zprávy mají obal `{ matchId, roundIndex, data }` a typ `minigame`; `roundIndex` se počítá od nuly. Zprávy ze staršího kola nebo zápasu se ignorují. Pouze vývojový test přijímá od správce `data: { action: 'finish', groups: [...] }` s předem určeným pořadím; tento vstup není součástí produkčních her. Úplný příklad ověření je v `tests/unit/match.test.ts`.
+
+## Závod aut
+
+- Phaser 3 běží pouze v prohlížeči a načítá se až při závodu. Planck 1.4.2 počítá fyziku na Node.js serveru (tato verze zachovává podporu Node.js 22). Grafika používá geometrické tvary; žádné externí obrázky ani zvuk.
+- `shared/race.ts` obsahuje přehledné parametry: cílových 180 s × běžných 24 m/s = přibližně 4320 m, limit 300 s, šířku 22 m, vlastnosti aut, 60Hz fyziku, 20Hz snímky a 2sekundový zámek po resetu. Kamera ukazuje prostor před autem.
+- Trať vznikne před odpočtem na serveru z rovin a pozvolných oblouků. Monotónní směr a omezená křivost zabraňují návratům přes sebe; polygon bariér se kontroluje na překřížení. Po nejvýše osmi pokusech je zálohou rovná trať. Všichni dostanou stejný popis; startovní místa se náhodně rozdělí bez překryvů.
+- **WASD nebo šipky:** plyn, brzda/zpátečka a řízení. Ztráta focusu vynuluje vstupy a server navíc neutralizuje vstup starší než 300 ms. Samotný blur není odpojení. **R:** návrat za poslední bezpečný checkpoint, vynulování rychlosti a 2 s bez ovládání. Návrat nikdy nezvýší postup a hledá volné místo mimo ostatní auta; není-li volné, čeká. Před startem jsou vstupy zablokované.
+- Klient posílá pouze vstupy se sekvencí. Server řeší nárazy, bariéry, průjezd checkpointy i cíl správným směrem. Vlastní auto používá jednoduchou predikci s opakováním nepotvrzených vstupů a opravou ze serveru; ostatní auta se interpolují s malým zpožděním. Rychlé snímky se posílají samostatně, bez opakovaného přenosu celé tratě a bez překreslování lobby.
+- Odpojení (včetně reloadu, pokud ho server zaznamená jako přerušení) ihned vyloučí účastníka z tohoto závodu a odstraní jeho auto. Návrat do 30 s zachovává členství v lobby, ale hráč pouze sleduje. Platný dojezd zůstane zachovaný i po odpojení. V příští minihře může znovu hrát.
+- Závod skončí po dojezdu všech zbývajících aut, okamžitě bez zbývajících závodníků, nebo po 300 s. Pořadí: čas dojezdu → připojení nedokončivší podle checkpointů a vzdálenosti po úseku → vyloučení ve shodě na posledním místě. Postup není vzdušná vzdálenost k cíli. Hodnoty v sekundách a procentech jsou informativní; body přiděluje původní společný systém.
+- Na konci se uklidí interval, fyzikální svět, klávesnice i Phaser scéna. Lobby, odpočet, výsledky, celkové skóre i SQLite historie používají stávající systém.
 
 ## Ověření
 
@@ -72,9 +83,11 @@ npm run typecheck
 npm run test:unit
 ```
 
-Testy nejprve ověří bodování včetně remíz a nedokončivších, validaci pořadí, zamíchané seznamy, ochranu před dvojím přičtením, staré callbacky, časové limity, úklid a oddělení vývojového registru od produkce. Potom spustí dočasný server na portu 3100 s oddělenou databází v `test-results/` a projdou aplikaci v oddělených browser kontextech. Ověřují dva hráče a ready, automatický start, reload se zachováním identity, převzetí druhou kartou bez duplicity, reset ready, automatický návrat po výpadku sítě a odebrání po 30 sekundách, mazání prázdné lobby, zákaz vstupu do spuštěné hry, kapacitu osmi hráčů, validaci jména, bezpečné zobrazení textu a atributy session cookie. Test správce ověřuje vyhození připojeného i odpojeného hráče, odmítnutí podvržené zprávy běžného hráče, zachování role při reloadu a předání role při odchodu. Průchod čtyř hráčů dvěma koly ověřuje výsledky, dělené vítězství, odchod hráče bez změny P, zápis do SQLite a návrat do stejné lobby. Další testy na portu 3101 ověřují prázdný produkční registr a zachování session a zánik lobby po restartu, hash tokenu v SQLite, expiraci session a produkční cookie Secure.
+Testy nejprve ověří bodování včetně remíz a nedokončivších, validaci pořadí, zamíchané seznamy, ochranu před dvojím přičtením, staré callbacky, časové limity, úklid a oddělení vývojového registru od produkce. Potom spustí dočasný server na portu 3100 s oddělenou databází v `test-results/` a projdou aplikaci v oddělených browser kontextech. Ověřují dva hráče a ready, automatický start, reload se zachováním identity, převzetí druhou kartou bez duplicity, reset ready, automatický návrat po výpadku sítě a odebrání po 30 sekundách, mazání prázdné lobby, zákaz vstupu do spuštěné hry, kapacitu osmi hráčů, validaci jména, bezpečné zobrazení textu a atributy session cookie. Test správce ověřuje vyhození připojeného i odpojeného hráče, odmítnutí podvržené zprávy běžného hráče, zachování role při reloadu a předání role při odchodu. Průchod čtyř hráčů dvěma koly ověřuje výsledky, dělené vítězství, odchod hráče bez změny P, zápis do SQLite a návrat do stejné lobby. Další testy na portu 3101 ověřují skutečný závod bez vývojové minihry v produkčním registru a zachování session a zánik lobby po restartu, hash tokenu v SQLite, expiraci session a produkční cookie Secure.
 
-Ověřeno 22. 10. 2026: build i všechny testy úspěšně prošly v Chromiu. Cloudové nasazení ani provoz za skutečnou HTTPS proxy nebyly prováděny.
+Závodní testy kontrolují generátor včetně náhradní tratě, průjezd plné tratě ve zrychlené serverové simulaci, checkpointy, nárazy a bariéry, reset a pořadí po odpojení. Samostatný závod na portu 3103 ověřuje ve dvou browser kontextech společný start, skutečný vzájemný náraz, R, blur, vyloučení a opětovné připojení jako divák. Regresní lobby testy používají výhradně v development proměnnou `MINIGAME_TEST_ONLY=1`, aby jejich krátké zápasy zůstaly deterministické; produkce ji ignoruje.
+
+Ověřeno 22. 10. 2026: TypeScript, build, jednotkové testy i testy v Chromiu. Cloudové nasazení ani provoz za skutečnou HTTPS proxy nebyly prováděny.
 
 ## Soubory
 
@@ -82,7 +95,8 @@ Ověřeno 22. 10. 2026: build i všechny testy úspěšně prošly v Chromiu. Cl
 - `server/auth.ts` — SQLite, hráči a session cookie.
 - `server/lobby.ts` — místnosti, členství, nastavení a start zápasu.
 - `server/match.ts`, `server/scoring.ts` — fáze zápasu, výběr a společné body.
-- `server/minigames/` — rozhraní, registr a vývojový test.
+- `server/minigames/` — rozhraní, registr, vývojový test a serverový závod v `race/`.
+- `shared/race.ts`, `client/race.ts` — parametry a protokol závodu, predikce a Phaser vykreslení.
 - `server/history.ts` — uložení dokončených zápasů.
 - `client/` — HTML, CSS a TypeScript bez frameworku.
 - `shared/` — veřejné typy zpráv a limit počtu kol.

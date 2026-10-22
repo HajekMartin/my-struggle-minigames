@@ -34,6 +34,7 @@ interface MatchCallbacks {
   completed(state: MatchState): void;
   returned(): void;
   error(message: string): void;
+  updated?(data: { [key: string]: JsonValue }): void;
 }
 
 export class Match {
@@ -47,6 +48,7 @@ export class Match {
   private disposed = false;
   private completed = false;
   private started = false;
+  private roundFailed = false;
   private readonly games: readonly MinigameDefinition[];
 
   constructor(participants: Player[], order: MinigameDefinition[], private callbacks: MatchCallbacks) {
@@ -77,32 +79,54 @@ export class Match {
     this.roundToken++;
     this.state.gameData = null;
     this.transition('rules', RULES_MS, () => this.transition('countdown', COUNTDOWN_MS, () => this.play()));
-  }
-
-  private play() {
     const token = this.roundToken;
     const definition = this.games[this.state.roundIndex];
-    this.state.phase = 'playing';
-    this.state.phaseEndsAt = Date.now() + definition.timeLimitMs;
-    const active = () => !this.disposed && this.roundToken === token && this.state.phase === 'playing' && !this.settling;
+    const current = () => !this.disposed && this.roundToken === token && !this.settling && ['rules', 'countdown', 'playing'].includes(this.state.phase);
+    this.roundFailed = false;
     try {
       this.game = definition.create({
         participants: this.state.participants,
         isConnected: id => this.callbacks.isConnected(id),
         isAdmin: id => this.callbacks.isAdmin(id),
-        publish: data => { if (active()) { this.state.gameData = data; this.callbacks.changed(); } },
+        publish: data => { if (current()) { this.state.gameData = data; this.callbacks.changed(); } },
+        update: data => {
+          if (!current()) return;
+          const previous = this.state.gameData;
+          if (!previous || typeof previous !== 'object' || Array.isArray(previous)) return;
+          this.state.gameData = { ...previous, ...data };
+          this.callbacks.updated?.(data);
+        },
         complete: () => {
-          // A game may request completion from create/start; defer until its instance exists.
-          queueMicrotask(() => { if (active()) this.finishRound(); });
+          // Defer synchronous completion from start(), and ignore other phases or old rounds.
+          queueMicrotask(() => { if (current() && this.state.phase === 'playing') this.finishRound(); });
         }
       });
-      this.timer = setTimeout(() => { if (active()) this.finishRound(); }, definition.timeLimitMs);
-      this.game.start();
+      this.game.prepare?.();
+    } catch {
+      this.roundFailed = true;
+      this.callbacks.error('Minihru se nepodařilo připravit. Účastníci budou vyhodnoceni jako nedokončivší.');
+    }
+  }
+
+  private play() {
+    const definition = this.games[this.state.roundIndex];
+    this.state.phase = 'playing';
+    this.state.phaseEndsAt = Date.now() + definition.timeLimitMs;
+    if (this.roundFailed) { this.finishRound(true); return; }
+    try {
+      this.timer = setTimeout(() => this.finishRound(), definition.timeLimitMs);
+      this.game!.start();
       this.callbacks.changed();
     } catch {
       this.callbacks.error('Minihru se nepodařilo spustit. Účastníci jsou vyhodnoceni jako nedokončivší.');
       this.finishRound(true);
     }
+  }
+
+  disconnected(playerId: string) {
+    if (this.disposed || !['rules', 'countdown', 'playing'].includes(this.state.phase)) return;
+    try { this.game?.onDisconnect?.(playerId); }
+    catch { this.callbacks.error('Minihra nedokázala zpracovat odpojení hráče.'); }
   }
 
   message(playerId: string, roundIndex: number, data: JsonValue) {

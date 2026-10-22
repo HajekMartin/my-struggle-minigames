@@ -39,6 +39,14 @@
         <p id="minigame-rules"></p>
         <div class="phase-row"><h3 id="match-phase" role="status"></h3><span id="phase-timer"><span id="phase-time"></span></span></div>
         <p id="game-message"></p>
+        <div id="race-panel" hidden>
+          <div class="race-hud"><strong>Čas <span id="race-time">0:00</span></strong><span id="race-progress"></span><span id="race-catchup"></span></div>
+          <div id="race-canvas" class="race-canvas"></div>
+          <div id="race-countdown" class="race-countdown" role="status"></div>
+          <p id="race-status" role="status"></p>
+          <ol id="race-order" class="race-order" aria-label="Průběžné pořadí závodu"></ol>
+          <button id="race-leave" class="secondary" type="button">Opustit lobby</button>
+        </div>
         <button id="dev-finish" class="secondary" type="button" hidden>Vyhodnotit testovací kolo</button>
         <div id="match-results" class="results-scroll" hidden><p id="winner" hidden></p><table><thead><tr><th>Pořadí</th><th>Hráč</th><th>Body kola</th><th>Celkem</th><th>Výsledek</th></tr></thead><tbody id="scores"></tbody></table></div>
       </section>

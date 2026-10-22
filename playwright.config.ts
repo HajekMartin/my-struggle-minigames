@@ -9,7 +9,7 @@ export default defineConfig({
   webServer: {
     command: 'npm start',
     url: 'http://127.0.0.1:3100/api/me',
-    env: { PORT: '3100', SQLITE_PATH: './test-results/lobby.sqlite', NODE_ENV: 'development' },
+    env: { PORT: '3100', SQLITE_PATH: './test-results/lobby.sqlite', NODE_ENV: 'development', MINIGAME_TEST_ONLY: '1' },
     reuseExistingServer: false,
     timeout: 20_000
   }
