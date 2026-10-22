@@ -63,3 +63,39 @@ test('restart zachová SQLite session, zruší lobby; expirace a Secure v produk
     if (server) await stop(server);
   }
 });
+
+test('produkční prázdný registr zobrazí chybu a zápas se nespustí', async ({ browser }) => {
+  for (const suffix of ['', '-wal', '-shm']) await rm(database + suffix, { force: true });
+  let server: ChildProcess | undefined = await start();
+  const contexts = [await browser.newContext(), await browser.newContext()];
+  try {
+    const pages = [];
+    // Seed persistent sessions before switching to production, without requiring an HTTPS test proxy.
+    for (const [index, context] of contexts.entries()) {
+      const page = await context.newPage(); pages.push(page);
+      await page.goto(address);
+      await page.getByLabel('Jméno hráče').fill(`Hráč ${index}`);
+      await page.getByRole('button', { name: 'Pokračovat' }).click();
+      await expect(page.locator('#choices')).toBeVisible();
+    }
+    await stop(server); server = undefined; server = await start(true);
+    for (const page of pages) await page.reload();
+    await pages[0].getByRole('button', { name: 'Vytvořit lobby' }).click();
+    await expect(pages[0].locator('#lobby-code')).toHaveText(/^[A-Z2-9]{6}$/);
+    await pages[1].getByLabel('Kód lobby', { exact: true }).fill((await pages[0].locator('#lobby-code').textContent())!);
+    await pages[1].getByRole('button', { name: 'Připojit se do lobby' }).click();
+    await expect(pages[0].locator('#players li')).toHaveCount(2);
+    for (const page of pages) await page.getByRole('button', { name: 'Jsem připraven/a', exact: true }).click();
+    for (const page of pages) {
+      await expect(page.getByRole('alert')).toContainText('není dostupná žádná minihra');
+      await expect(page.locator('#match-panel')).toBeHidden();
+      await expect(page.getByRole('button', { name: 'Jsem připraven/a', exact: true })).toBeVisible();
+    }
+    const db = new DatabaseSync(database);
+    try { expect(db.prepare('SELECT count(*) AS count FROM matches').get()!.count).toBe(0); }
+    finally { db.close(); }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+    if (server) await stop(server);
+  }
+});

@@ -32,6 +32,16 @@
 
     <section id="lobby" class="panel" hidden aria-labelledby="lobby-title">
       <div class="lobby-heading"><h1 id="lobby-title">Lobby</h1><div class="invite"><span>KÓD LOBBY</span><div class="code-row"><strong id="lobby-code"></strong><button id="copy-code" class="copy-button" type="button" aria-label="Kopírovat kód lobby">Kopírovat</button></div><span id="copy-status" class="sr-only" role="status"></span></div></div>
+      <div id="lobby-settings" class="lobby-settings"><label for="round-count">Počet kol</label><select id="round-count"></select></div>
+      <section id="match-panel" class="match-panel" hidden aria-label="Zápas">
+        <p id="match-round" class="match-round"></p>
+        <h2 id="minigame-name"></h2>
+        <p id="minigame-rules"></p>
+        <div class="phase-row"><h3 id="match-phase" role="status"></h3><span id="phase-timer"><span id="phase-time"></span></span></div>
+        <p id="game-message"></p>
+        <button id="dev-finish" class="secondary" type="button" hidden>Vyhodnotit testovací kolo</button>
+        <div id="match-results" class="results-scroll" hidden><p id="winner" hidden></p><table><thead><tr><th>Pořadí</th><th>Hráč</th><th>Body kola</th><th>Celkem</th><th>Výsledek</th></tr></thead><tbody id="scores"></tbody></table></div>
+      </section>
       <div class="list-heading"><h3>Hráči <span id="count"></span></h3><span>STAV</span></div>
       <ul id="players" aria-label="Hráči v lobby"></ul>
       <div class="lobby-bottom"><p id="lobby-hint" role="status"></p><button id="ready" type="button">Jsem připraven/a</button></div>

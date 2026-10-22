@@ -1,5 +1,7 @@
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import type { LobbyState, Player } from '../shared/types.js';
+import { MAX_ROUNDS } from '../shared/config.js';
+import { renderMatch, syncMatchClock, updateCountdown } from './match.js';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const sdk = new Client(location.origin);
@@ -20,6 +22,7 @@ function setBusy(value: boolean) {
   busy = value;
   for (const button of document.querySelectorAll<HTMLButtonElement>('button')) button.disabled = value;
   element<HTMLButtonElement>('ready').disabled = value || !room || !!state?.started;
+  element<HTMLSelectElement>('round-count').disabled = value || !room || !!state?.started || state?.adminId !== player?.id;
 }
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
@@ -29,6 +32,8 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 function render(next: LobbyState) {
   state = next;
+  syncMatchClock(next.serverTime);
+  error(next.error ?? '');
   show('lobby');
   if (element('lobby-code').textContent !== next.code) {
     element('copy-code').textContent = 'Kopírovat';
@@ -36,6 +41,9 @@ function render(next: LobbyState) {
   }
   element('lobby-code').textContent = next.code;
   element('lobby-title').textContent = next.started ? 'Hra spuštěna' : 'Lobby';
+  element<HTMLSelectElement>('round-count').value = String(next.roundCount);
+  element('lobby-settings').hidden = next.started;
+  renderMatch(next.match, next.adminId === player?.id);
   element('count').textContent = `${next.players.length} / 8`;
   element('players').replaceChildren(...next.players.map(p => {
     const row = document.createElement('li');
@@ -46,10 +54,10 @@ function render(next: LobbyState) {
     label.append(initial, name);
     if (p.id === player?.id) { const you = document.createElement('span'); you.className = 'you'; you.textContent = '(vy)'; label.append(you); }
     if (p.id === next.adminId) { const admin = document.createElement('span'); admin.className = 'admin-badge'; admin.textContent = 'Správce'; label.append(admin); }
-    const status = document.createElement('span'); status.className = `status${p.ready ? ' is-ready' : ''}`;
+    const status = document.createElement('span'); status.className = `status${p.connected && (p.ready || next.started) ? ' is-ready' : ''}`;
     const statusIcon = document.createElement('span'); statusIcon.className = 'status-icon'; statusIcon.setAttribute('aria-hidden', 'true');
-    statusIcon.textContent = p.connected && p.ready ? '✓' : '○';
-    status.append(statusIcon, document.createTextNode(!p.connected ? 'Odpojen/a · čekáme na návrat' : p.ready ? 'Připraven' : 'Čeká'));
+    statusIcon.textContent = p.connected && (p.ready || next.started) ? '✓' : '○';
+    status.append(statusIcon, document.createTextNode(!p.connected ? 'Odpojen/a · čekáme na návrat' : next.started ? 'Připojen' : p.ready ? 'Připraven' : 'Čeká'));
     const actions = document.createElement('span'); actions.className = 'player-actions'; actions.append(status);
     if (next.adminId === player?.id && p.id !== player.id) {
       const kick = document.createElement('button'); kick.type = 'button'; kick.className = 'kick-button';
@@ -64,6 +72,7 @@ function render(next: LobbyState) {
   element('ready').classList.toggle('ready-confirmed', !!own?.ready);
   element('ready').setAttribute('aria-pressed', String(!!own?.ready));
   element('ready').hidden = next.started;
+  element('ready').parentElement!.hidden = next.started;
   element('lobby-hint').textContent = next.started ? 'Všichni byli připraveni. Hra spuštěna.' : next.players.length < 2 ? 'Pozvěte alespoň jednoho dalšího hráče pomocí kódu.' : 'Hra se spustí automaticky, až budou všichni připojení a připravení.';
   setBusy(busy);
 }
@@ -132,6 +141,16 @@ element('ready').addEventListener('click', () => {
   if (!room || !state || state.started) return;
   room.send('ready', !state.players.find(p => p.id === player?.id)?.ready);
 });
+for (let count = 1; count <= MAX_ROUNDS; count++) {
+  const option = document.createElement('option'); option.value = String(count); option.textContent = String(count);
+  element('round-count').append(option);
+}
+element('round-count').addEventListener('change', () => {
+  if (room && !busy && !state?.started) room.send('roundCount', Number(element<HTMLSelectElement>('round-count').value));
+});
+element('dev-finish').addEventListener('click', () => {
+  if (room && state?.match && !busy) room.send('minigame', { matchId: state.match.id, roundIndex: state.match.roundIndex, data: { action: 'finish' } });
+});
 element('leave').addEventListener('click', () => {
   if (!room) return;
   setBusy(true); room.send('leave');
@@ -148,7 +167,8 @@ element('copy-code').addEventListener('click', async () => {
     error('Kód se nepodařilo zkopírovat. Označte jej a zkopírujte ručně.');
   }
 });
-window.addEventListener('pagehide', () => clearTimeout(retryTimer));
+const countdownTimer = setInterval(updateCountdown, 200);
+window.addEventListener('pagehide', () => { clearTimeout(retryTimer); clearInterval(countdownTimer); });
 
 void run(async () => {
   const me = await api<{ player: Player | null; lobbyCode: string | null }>('/api/me');

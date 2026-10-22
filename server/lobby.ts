@@ -1,7 +1,11 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { Room, ServerError, type Client, type AuthContext } from '@colyseus/core';
 import { findSession, sameOrigin, sessionValid, type Session } from './auth.js';
-import type { LobbyPlayer, LobbyState } from '../shared/types.js';
+import type { JsonValue, LobbyPlayer, LobbyState } from '../shared/types.js';
+import { DEFAULT_ROUNDS, MAX_ROUNDS } from '../shared/config.js';
+import { Match, selectMinigames } from './match.js';
+import { minigames } from './minigames/index.js';
+import { saveMatch } from './history.js';
 
 export const roomsByCode = new Map<string, LobbyRoom>();
 export const roomByPlayer = new Map<string, LobbyRoom>();
@@ -12,6 +16,9 @@ interface Member { player: LobbyPlayer; client?: Client; session: Session; timeo
 export class LobbyRoom extends Room {
   code = '';
   started = false;
+  roundCount = DEFAULT_ROUNDS;
+  private match?: Match;
+  private matchError: string | null = null;
   adminId: string | null = null;
   members = new Map<string, Member>();
   private emptyTimeout?: NodeJS.Timeout;
@@ -30,12 +37,35 @@ export class LobbyRoom extends Room {
     void this.setPrivate(true);
     this.emptyTimeout = setTimeout(() => { if (!this.members.size) void this.disconnect(); }, 15_000);
     this.onMessage('sync', () => this.publish());
+    this.onMessage('roundCount', (client, value: unknown) => {
+      const member = this.ownMember(client);
+      if (!member || !sessionValid(member.session)) return;
+      if (member.player.id !== this.adminId) { client.send('error', 'Počet kol může změnit pouze správce lobby.'); return; }
+      if (this.started || typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_ROUNDS) {
+        client.send('error', `Počet kol musí být celé číslo od 1 do ${MAX_ROUNDS} a lze ho změnit jen v lobby.`);
+        return;
+      }
+      if (value === this.roundCount) return;
+      this.roundCount = value;
+      this.matchError = null;
+      this.resetReady();
+      this.publish();
+    });
+    this.onMessage('minigame', (client, payload: unknown) => {
+      const member = this.ownMember(client);
+      if (!member || !sessionValid(member.session) || !payload || typeof payload !== 'object') return;
+      const message = payload as { matchId?: string; roundIndex?: number; data?: JsonValue };
+      // Reject late packets from earlier rounds and earlier matches in the same room.
+      const match = this.match;
+      if (!match || message.matchId !== match.state.id || message.roundIndex === undefined || message.data === undefined) return;
+      match.message(member.player.id, message.roundIndex, message.data);
+    });
     this.onMessage('ready', (client, value: unknown) => {
       const member = this.ownMember(client);
       if (!member || !sessionValid(member.session) || this.started || typeof value !== 'boolean') return;
       member.player.ready = value;
       if (this.members.size >= 2 && [...this.members.values()].every(m => m.player.connected && m.player.ready && sessionValid(m.session))) {
-        this.started = true;
+        this.startMatch();
       }
       this.publish();
     });
@@ -58,6 +88,46 @@ export class LobbyRoom extends Room {
       // Remove membership first so a late close event cannot reserve a reconnect seat.
       void target.client?.leave(4004);
     });
+  }
+
+  private startMatch() {
+    try {
+      const order = selectMinigames(minigames, this.roundCount);
+      this.matchError = null;
+      this.match = new Match([...this.members.values()].map(m => ({ id: m.player.id, name: m.player.name })), order, {
+        isConnected: id => {
+          const member = this.members.get(id);
+          return !!member?.player.connected && sessionValid(member.session);
+        },
+        isAdmin: id => id === this.adminId,
+        changed: () => this.publish(),
+        error: message => { this.matchError = message; },
+        completed: state => {
+          try { saveMatch(this.code, this.match!.startedAt, state); }
+          catch (error) {
+            console.error('Uložení zápasu selhalo:', error);
+            this.matchError = 'Výsledky zápasu se nepodařilo uložit do databáze.';
+            this.publish();
+          }
+        },
+        returned: () => {
+          this.match = undefined;
+          this.started = false;
+          this.resetReady();
+          this.publish();
+          if (!this.members.size) { roomsByCode.delete(this.code); void this.disconnect(); }
+        }
+      });
+      this.started = true;
+      this.resetReady();
+      this.match.start();
+    } catch (error) {
+      this.match?.dispose();
+      this.match = undefined;
+      this.started = false;
+      this.matchError = (error as Error).message;
+      this.resetReady();
+    }
   }
 
   onAuth(_client: Client, _options: unknown, context: AuthContext) {
@@ -133,7 +203,7 @@ export class LobbyRoom extends Room {
     if (this.adminId === id) this.adminId = this.members.keys().next().value ?? null;
     this.resetReady();
     this.publish();
-    if (!this.members.size) {
+    if (!this.members.size && !this.match) {
       roomsByCode.delete(this.code);
       void this.disconnect();
     }
@@ -141,11 +211,16 @@ export class LobbyRoom extends Room {
 
   private resetReady() { for (const member of this.members.values()) member.player.ready = false; }
   private publish() {
-    const state: LobbyState = { code: this.code, started: this.started, adminId: this.adminId, players: [...this.members.values()].map(m => m.player) };
+    const state: LobbyState = {
+      code: this.code, started: this.started, adminId: this.adminId,
+      players: [...this.members.values()].map(m => m.player), roundCount: this.roundCount,
+      match: this.match?.state ?? null, error: this.matchError, serverTime: Date.now()
+    };
     this.broadcast('lobby', state);
   }
 
   onDispose() {
+    this.match?.dispose();
     clearTimeout(this.emptyTimeout);
     roomsByCode.delete(this.code);
     for (const [id, member] of this.members) {

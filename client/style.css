@@ -46,7 +46,7 @@ input {
   min-width: 0;
 }
 input::placeholder { color: var(--text-muted); }
-input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--text); outline-offset: 4px; }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--text); outline-offset: 4px; }
 button {
   min-height: 49px;
   padding: 12px 22px;
@@ -125,6 +125,24 @@ small { display: block; color: var(--text-muted); font-size: 12px; margin-top: 1
 .error { border-color: var(--primary); display: flex; align-items: baseline; gap: 12px; }
 .error::before { content: "⚠"; flex-shrink: 0; color: var(--text); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.lobby-settings { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.lobby-settings label { margin: 0; }
+select { min-width: 80px; padding: 9px 12px; color: var(--text); background: var(--background); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+select:disabled { color: var(--text-muted); opacity: 1; }
+.match-panel { border: 1px solid var(--border); border-radius: 6px; padding: 24px; margin-bottom: 20px; }
+.match-round { margin: 0 0 8px; }
+.match-panel h2 { font-size: 21px; margin: 0; }
+.phase-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+#phase-time { font-family: ui-monospace, monospace; font-size: 24px; font-variant-numeric: tabular-nums; }
+#game-message:empty { display: none; }
+#dev-finish { margin-top: 18px; }
+.results-scroll { overflow-x: auto; margin-top: 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+td { overflow-wrap: anywhere; }
+.winner-row { font-weight: 700; }
+#winner { color: var(--text); font-weight: 700; }
 
 @media (max-width: 650px) {
   main { padding: 30px 18px; }

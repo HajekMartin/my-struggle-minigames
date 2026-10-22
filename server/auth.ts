@@ -16,6 +16,16 @@ db.exec(`
     player_id TEXT NOT NULL REFERENCES players(id),
     expires_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS matches (
+    id TEXT PRIMARY KEY,
+    lobby_code TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    completed_at INTEGER NOT NULL,
+    participants_json TEXT NOT NULL,
+    minigames_json TEXT NOT NULL,
+    rounds_json TEXT NOT NULL,
+    scores_json TEXT NOT NULL
+  );
 `);
 db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
 export interface Session extends Player { tokenHash: string; expiresAt: number }

@@ -9,7 +9,9 @@
     "build:client": "esbuild client/main.ts --bundle --format=esm --outfile=dist/public/main.js && node scripts/copy-public.mjs",
     "build": "tsc --noEmit && tsc -p tsconfig.server.json && npm run build:client",
     "start": "node --env-file-if-exists=.env dist/server/index.js",
-    "test": "npm run build && playwright test"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --import tsx --test tests/unit/*.test.ts",
+    "test": "npm run build && npm run test:unit && playwright test"
   },
   "dependencies": {
     "@colyseus/core": "0.18.23",

@@ -61,7 +61,8 @@ test('dva hráči, reset ready, reload, cookie, spuštění a zákaz nových hr�
     await b.page.getByRole('button', { name: 'Opustit lobby' }).click();
     await expect(b.page.locator('#choices')).toBeVisible();
     await join(c.page, code);
-    await expect(c.page.getByRole('alert')).toContainText('neexistuje');
+    // Even an empty running match finishes and saves its locked participants first.
+    await expect(c.page.getByRole('alert')).toContainText('už byla spuštěna');
   } finally { await close(a.context, b.context, c.context); }
 });
 
@@ -154,6 +155,10 @@ test('správce může vyhodit hráče, běžný hráč nemůže; role přežije 
     await b.page.evaluate(data => (window as unknown as { testSocket: WebSocket }).testSocket.send(new Uint8Array(data)), bytes);
     await expect(b.page.getByRole('alert')).toContainText('pouze správce');
     await expect(a.page.locator('#players li')).toHaveCount(3);
+    encoder.send('roundCount', 2);
+    await b.page.evaluate(data => (window as unknown as { testSocket: WebSocket }).testSocket.send(new Uint8Array(data)), bytes);
+    await expect(b.page.getByRole('alert')).toContainText('Počet kol může změnit pouze správce');
+    await expect(a.page.getByLabel('Počet kol')).toHaveValue('1');
     await ready(b.page);
     await a.page.getByRole('button', { name: 'Vyhodit hráče Host', exact: true }).click();
     await expect(c.page.getByRole('alert')).toHaveText('Správce vás vyhodil z lobby.');
