@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142921">
+  <title>Party lobby</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/main.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">PARTY<span> / </span>LOBBY</a><span>Společně u jedné hry</span></header>
+  <main>
+    <div class="intro"><span class="eyebrow">MÍSTO PRO VAŠI PARTU</span><h1>Nejdřív se sejdeme.<br>Pak to začne.</h1><p>Vytvořte lobby, pošlete kód ostatním a připravte se na hru.</p></div>
+    <p id="error" class="notice error" role="alert" hidden></p>
+    <p id="connection" class="notice" role="status">Načítání…</p>
+
+    <section id="identity" class="panel" hidden aria-labelledby="identity-title">
+      <div class="section-top"><span class="step">01</span><span>VAŠE JMÉNO</span></div>
+      <h2 id="identity-title">Jak vám máme říkat?</h2>
+      <p>Stačí jméno, pod kterým vás ostatní poznají.</p>
+      <form id="name-form">
+        <label for="name">Jméno hráče</label>
+        <div class="form-row"><input id="name" name="name" autocomplete="nickname" placeholder="Třeba Martin" required><button type="submit">Pokračovat <span aria-hidden="true">→</span></button></div>
+        <small>1–20 znaků · Bez registrace</small>
+      </form>
+    </section>
+
+    <section id="choices" hidden aria-labelledby="choices-title">
+      <div class="welcome"><h2 id="choices-title">Vítejte, <span id="player-name"></span>.</h2><p>Vaše parta potřebuje jen jeden společný kód.</p></div>
+      <div class="choices-grid">
+        <article class="panel choice"><div class="section-top"><span class="step">02</span><span>NOVÁ PARTA</span></div><h2>Založte vlastní lobby</h2><p>Dostanete šestimístný kód, který pošlete ostatním hráčům.</p><button id="create" type="button">Vytvořit lobby <span aria-hidden="true">+</span></button></article>
+        <article class="panel choice"><div class="section-top"><span class="step">02</span><span>MÁTE POZVÁNKU?</span></div><h2>Přidejte se k ostatním</h2><form id="join-form"><label for="code-input">Kód lobby</label><input id="code-input" name="code" placeholder="ABC123" autocomplete="off" spellcheck="false" required><button class="secondary" type="submit">Připojit se do lobby <span aria-hidden="true">→</span></button></form></article>
+      </div>
+    </section>
+
+    <section id="lobby" class="panel" hidden aria-labelledby="lobby-title">
+      <div class="lobby-heading"><div><div class="section-top"><span class="step">03</span><span>VAŠE LOBBY</span></div><h2 id="lobby-title">Čekáme na partu</h2></div><div class="invite"><span>KÓD PRO OSTATNÍ</span><strong id="lobby-code"></strong></div></div>
+      <div class="list-heading"><h3>Hráči <span id="count"></span></h3><span>STAV</span></div>
+      <ul id="players" aria-label="Hráči v lobby"></ul>
+      <div class="lobby-bottom"><p id="lobby-hint" role="status"></p><button id="ready" type="button">Jsem připraven/a</button></div>
+      <button id="leave" class="text-button" type="button">Opustit lobby</button>
+    </section>
+    <footer><span>2–8 hráčů v jedné lobby</span><span>Lobby běží na serveru. Stačí otevřený prohlížeč.</span></footer>
+  </main>
+</body>
+</html>

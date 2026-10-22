@@ -1,0 +1,126 @@
+import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
+import type { LobbyState, Player } from '../shared/types.js';
+
+const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const sdk = new Client(location.origin);
+let player: Player | null = null;
+let room: Room | undefined;
+let state: LobbyState | undefined;
+let busy = false;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryUntil = 0;
+
+function error(message = '') { element('error').textContent = message; element('error').hidden = !message; }
+function connection(message = '') { element('connection').textContent = message; element('connection').hidden = !message; }
+function show(screen: 'identity' | 'choices' | 'lobby') {
+  for (const id of ['identity', 'choices', 'lobby']) element(id).hidden = id !== screen;
+  element('player-name').textContent = player?.name ?? '';
+}
+function setBusy(value: boolean) {
+  busy = value;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('button')) button.disabled = value;
+  element<HTMLButtonElement>('ready').disabled = value || !room || !!state?.started;
+}
+async function api<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(path, { credentials: 'same-origin', ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Požadavek se nepodařil.');
+  return data;
+}
+function render(next: LobbyState) {
+  state = next;
+  show('lobby');
+  element('lobby-code').textContent = next.code;
+  element('lobby-title').textContent = next.started ? 'Hra spuštěna' : 'Čekáme na partu';
+  element('count').textContent = `${next.players.length} / 8`;
+  element('players').replaceChildren(...next.players.map(p => {
+    const row = document.createElement('li');
+    const label = document.createElement('span'); label.className = 'player-label';
+    const initial = document.createElement('span'); initial.className = 'initial'; initial.textContent = [...p.name][0]?.toUpperCase() ?? '';
+    const name = document.createElement('span'); name.textContent = p.name;
+    label.append(initial, name);
+    if (p.id === player?.id) { const you = document.createElement('span'); you.className = 'you'; you.textContent = '(vy)'; label.append(you); }
+    const status = document.createElement('span'); status.className = `status${p.ready ? ' is-ready' : ''}`;
+    status.textContent = !p.connected ? 'Odpojen/a · čekáme na návrat' : p.ready ? 'Připraven/a' : 'Čeká na připravenost';
+    row.append(label, status); return row;
+  }));
+  const own = next.players.find(p => p.id === player?.id);
+  element('ready').textContent = own?.ready ? 'Ještě nejsem připraven/a' : 'Jsem připraven/a';
+  element('ready').hidden = next.started;
+  element('lobby-hint').textContent = next.started ? 'Všichni byli připraveni. Hra spuštěna.' : next.players.length < 2 ? 'Pozvěte alespoň jednoho dalšího hráče pomocí kódu.' : 'Hra se spustí automaticky, až budou všichni připojení a připravení.';
+  setBusy(busy);
+}
+
+async function join(action: 'create' | 'join' | 'resume', code?: string) {
+  const { seat } = await api<{ seat: SeatReservation }>('/api/lobby', { action, code });
+  const joined = await sdk.consumeSeatReservation(seat);
+  // Reload recovery uses the HttpOnly identity, never a stored reconnection token.
+  joined.reconnection.enabled = false;
+  room = joined;
+  joined.onMessage<LobbyState>('lobby', next => { if (room === joined) render(next); });
+  joined.onError((_code, message) => error(message || 'Chyba připojení.'));
+  joined.onLeave(code => {
+    if (room !== joined) return;
+    room = undefined;
+    setBusy(false);
+    if (code === 4000) {
+      state = undefined; connection(); show('choices'); return;
+    }
+    if (code === 4001) { connection(); error('Lobby je otevřena v jiné kartě. Tuto stránku můžete zavřít nebo obnovit.'); return; }
+    if (code === 4002) { error('Platnost přihlášení vypršela. Obnovte stránku a zadejte jméno.'); return; }
+    connection('Spojení bylo přerušeno. Pokoušíme se o návrat do lobby (nejvýše 30 sekund).');
+    retryUntil = Date.now() + 30_000;
+    retryTimer = setTimeout(retry, 500);
+  });
+  joined.send('sync');
+  error(); connection();
+}
+
+async function retry() {
+  if (room) return;
+  try {
+    const me = await api<{ player: Player | null; lobbyCode: string | null }>('/api/me');
+    if (!me.player) { player = null; show('identity'); connection(); error('Platnost přihlášení vypršela. Zadejte jméno znovu.'); return; }
+    if (!me.lobbyCode) { state = undefined; show('choices'); connection(); error('Původní lobby už neexistuje nebo vypršel čas na návrat.'); return; }
+    await join('resume');
+  } catch {
+    if (Date.now() < retryUntil) retryTimer = setTimeout(retry, 1_000);
+    else { connection(); error('Spojení se nepodařilo obnovit. Zkontrolujte síť a obnovte stránku.'); }
+  }
+}
+
+async function run(action: () => Promise<void>) {
+  if (busy) return;
+  setBusy(true); error();
+  try { await action(); } catch (e) { error(e instanceof Error ? e.message : 'Server není dostupný. Zkuste to znovu.'); }
+  finally { setBusy(false); }
+}
+element('name-form').addEventListener('submit', event => {
+  event.preventDefault();
+  void run(async () => {
+    const result = await api<{ player: Player }>('/api/player', { name: element<HTMLInputElement>('name').value });
+    player = result.player; show('choices');
+  });
+});
+element('create').addEventListener('click', () => { void run(() => join('create')); });
+element('join-form').addEventListener('submit', event => {
+  event.preventDefault(); void run(() => join('join', element<HTMLInputElement>('code-input').value));
+});
+element('ready').addEventListener('click', () => {
+  if (!room || !state || state.started) return;
+  room.send('ready', !state.players.find(p => p.id === player?.id)?.ready);
+});
+element('leave').addEventListener('click', () => {
+  if (!room) return;
+  setBusy(true); room.send('leave');
+});
+window.addEventListener('pagehide', () => clearTimeout(retryTimer));
+
+void run(async () => {
+  const me = await api<{ player: Player | null; lobbyCode: string | null }>('/api/me');
+  player = me.player;
+  if (!player) show('identity');
+  else if (me.lobbyCode) await join('resume');
+  else show('choices');
+  connection();
+}).then(() => { connection(); if (element('identity').hidden && element('choices').hidden && element('lobby').hidden) show('identity'); });

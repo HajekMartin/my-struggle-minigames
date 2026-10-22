@@ -1,0 +1,28 @@
+{
+  "name": "party-lobby",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "scripts": {
+    "dev": "npm run build:client && node --env-file-if-exists=.env --import tsx --watch server/index.ts",
+    "build:client": "esbuild client/main.ts --bundle --format=esm --outfile=dist/public/main.js && node scripts/copy-public.mjs",
+    "build": "tsc --noEmit && tsc -p tsconfig.server.json && npm run build:client",
+    "start": "node --env-file-if-exists=.env dist/server/index.js",
+    "test": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.18.23",
+    "@colyseus/sdk": "0.18.6",
+    "@colyseus/ws-transport": "0.18.4",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.18.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
