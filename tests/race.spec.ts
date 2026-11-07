@@ -39,7 +39,7 @@ async function keys(page: Page, codes: string[], type: 'keydown' | 'keyup' = 'ke
 test('dva prohlížeče: společný start, náraz, R, blur, vyloučení a návrat jako divák', async ({ browser }) => {
   const database = './test-results/race.sqlite';
   for (const suffix of ['', '-wal', '-shm']) await rm(database + suffix, { force: true });
-  const server = spawn(process.execPath, ['dist/server/index.js'], {
+  const server = spawn(process.execPath, ['--input-type=module', '-e', "const { minigames } = await import('./dist/server/minigames/index.js'); const { raceGame } = await import('./dist/server/minigames/race/index.js'); minigames.splice(0, minigames.length, raceGame); await import('./dist/server/index.js');"], {
     env: { ...process.env, PORT: '3103', SQLITE_PATH: database, NODE_ENV: 'test', MINIGAME_TEST_ONLY: '0' }, stdio: ['ignore', 'pipe', 'pipe']
   });
   const contexts = [await browser.newContext(), await browser.newContext()];

@@ -1,6 +1,7 @@
 import type { MatchState, RoundScore, TotalScore } from '../shared/types.js';
 import type { JsonValue } from '../shared/types.js';
 import { renderRace } from './race-manager.js';
+import { renderWorms } from './worms-manager.js';
 
 const element = (id: string) => document.getElementById(id)!;
 let current: MatchState | null = null;
@@ -15,11 +16,13 @@ export function updateCountdown() {
   const seconds = Math.max(0, Math.ceil((current.phaseEndsAt - serverTime - (performance.now() - receivedAt)) / 1000));
   element('phase-time').textContent = `${seconds} s`;
   element('race-countdown').textContent = current.phase === 'rules' ? 'Připravte se' : current.phase === 'countdown' ? String(seconds) : '';
+  element('worms-countdown').textContent = current.phase === 'rules' ? 'Připravte se' : current.phase === 'countdown' ? String(seconds) : '';
 }
 
 export function renderMatch(match: MatchState | null, isAdmin: boolean, ownId: string, send: (data: JsonValue) => void) {
   current = match;
   renderRace(match, ownId, send);
+  renderWorms(match, ownId, send);
   element('match-panel').hidden = !match;
   if (!match) return;
   const game = match.order[match.roundIndex];

@@ -133,7 +133,20 @@ test('registr nabízí testovací minihru výhradně v development', () => {
     for (const fixture of ['0', '1']) {
       const result = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
         "import { minigames } from './server/minigames/index.ts'; console.log(JSON.stringify(minigames.map(g => g.id)))"], { env: { ...process.env, NODE_ENV: mode, MINIGAME_TEST_ONLY: fixture }, encoding: 'utf8' });
-      assert.deepEqual(JSON.parse(result), mode === 'development' && fixture === '1' ? ['development-test'] : ['car-race']);
+      assert.deepEqual(JSON.parse(result), mode === 'development' && fixture === '1' ? ['development-test'] : ['worms']);
     }
+  }
+});
+
+test('konfigurace dovolí samostatně zapnout obě hry i vypnout celý výběr', () => {
+  for (const race of [false, true]) for (const worms of [false, true]) {
+    const result = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+      import { MINIGAME_CONFIG } from './shared/minigames.config.ts';
+      MINIGAME_CONFIG['car-race'].enabled = ${race};
+      MINIGAME_CONFIG.worms.enabled = ${worms};
+      const { minigames } = await import('./server/minigames/index.ts');
+      console.log(JSON.stringify(minigames.map(game => game.id)));
+    `], { env: { ...process.env, NODE_ENV: 'production', MINIGAME_TEST_ONLY: '0' }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(result), [...(race ? ['car-race'] : []), ...(worms ? ['worms'] : [])]);
   }
 });

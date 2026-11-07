@@ -1,6 +1,7 @@
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import type { JsonValue, LobbyState, Player } from '../shared/types.js';
 import { renderRace, stopRace } from './race-manager.js';
+import { renderWorms, stopWorms } from './worms-manager.js';
 import { MAX_ROUNDS } from '../shared/config.js';
 import { renderMatch, syncMatchClock, updateCountdown } from './match.js';
 
@@ -90,12 +91,14 @@ async function join(action: 'create' | 'join' | 'resume', code?: string) {
     if (room !== joined || !match || match.id !== update.matchId || match.roundIndex !== update.roundIndex || !match.gameData || typeof match.gameData !== 'object' || Array.isArray(match.gameData)) return;
     match.gameData = { ...match.gameData, ...update.data };
     renderRace(match, player?.id ?? '', sendGame);
+    renderWorms(match, player?.id ?? '', sendGame);
   });
   joined.onMessage<string>('error', message => { if (room === joined) error(message); });
   joined.onError((_code, message) => error(message || 'Chyba připojení.'));
   joined.onLeave(code => {
     if (room !== joined) return;
     stopRace();
+    stopWorms();
     room = undefined;
     setBusy(false);
     if (code === 4000) {
@@ -181,7 +184,7 @@ element('copy-code').addEventListener('click', async () => {
   }
 });
 const countdownTimer = setInterval(updateCountdown, 200);
-window.addEventListener('pagehide', () => { stopRace(); clearTimeout(retryTimer); clearInterval(countdownTimer); });
+window.addEventListener('pagehide', () => { stopRace(); stopWorms(); clearTimeout(retryTimer); clearInterval(countdownTimer); });
 
 void run(async () => {
   const me = await api<{ player: Player | null; lobbyCode: string | null }>('/api/me');

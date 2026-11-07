@@ -47,6 +47,16 @@
           <ol id="race-order" class="race-order" aria-label="Průběžné pořadí závodu"></ol>
           <button id="race-leave" class="secondary" type="button">Opustit lobby</button>
         </div>
+        <div id="worms-panel" hidden>
+          <div id="worms-canvas"></div>
+          <div class="worms-hud">
+            <div class="worms-turn"><strong id="worms-active"></strong><strong id="worms-time"></strong><span id="worms-stamina"></span><label><span id="worms-power-label">Síla: 0 %</span><progress id="worms-power" max="100" value="0" aria-label="Síla výstřelu"></progress></label><button id="worms-end" type="button">Ukončit tah</button></div>
+            <p id="worms-players" aria-label="Stav postav"></p>
+          </div>
+          <div id="worms-countdown" class="race-countdown" role="status"></div>
+          <p id="worms-help" role="status"></p>
+          <button id="worms-leave" class="secondary" type="button">Opustit lobby</button>
+        </div>
         <button id="dev-finish" class="secondary" type="button" hidden>Vyhodnotit testovací kolo</button>
         <div id="match-results" class="results-scroll" hidden><p id="winner" hidden></p><table><thead><tr><th>Pořadí</th><th>Hráč</th><th>Body kola</th><th>Celkem</th><th>Výsledek</th></tr></thead><tbody id="scores"></tbody></table></div>
       </section>

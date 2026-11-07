@@ -209,7 +209,9 @@ export class RaceView {
     const own = this.latest.cars.find(c => c.id === this.ownId);
     const percent = own ? Math.floor(own.progress / this.data.track.length * 100) : 0;
     element('race-progress').textContent = `${percent} % · checkpoint ${own?.nextCheckpoint ?? 0} / ${this.data.track.checkpoints.length}`;
-    element('race-catchup').textContent = own?.status === 'racing' && this.phase === 'playing' && own.catchupBoost > 1.005 ? `Dohánění +${Math.round((own.catchupBoost - 1) * 100)} %` : '';
+    element('race-catchup').textContent = own?.status === 'racing' && this.phase === 'playing'
+      ? own.catchupBoost > 1.005 ? `Dohánění +${Math.round((own.catchupBoost - 1) * 100)} %`
+        : own.catchupBoost < .995 ? 'Držení skupiny' : '' : '';
     element('race-status').textContent = own?.status === 'excluded' ? 'Vyloučen/a po odpojení. Nyní pouze sledujete závod.' : own?.status === 'finished' ? `V cíli za ${(own.finishMs! / 1000).toFixed(2)} s. Sledujete ostatní.` : this.phase !== 'playing' ? 'Start po společném odpočtu · ovládání je uzamčené.' : own?.resetPending ? 'Čekáme na volné bezpečné místo pro návrat.' : own && own.lockedUntil > this.latest.elapsedMs ? 'Návrat na trať · ovládání zablokováno na 2 s.' : 'WASD / šipky · R: návrat za checkpoint';
     const ordered = [...this.latest.cars].sort((a, b) => {
       const status = { finished: 0, racing: 1, excluded: 2 };

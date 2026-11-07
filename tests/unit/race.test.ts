@@ -4,7 +4,7 @@ import { Vec2 } from 'planck';
 import { RaceSimulation } from '../../server/minigames/race/simulation.js';
 import { generateTrack, validTrack } from '../../server/minigames/race/track.js';
 import { raceGame } from '../../server/minigames/race/index.js';
-import { RACE, catchupMultiplier, crossedGate, pointAt, projectDistance, angleDifference, clamp, predictMotion, type Gate, type RaceData } from '../../shared/race.js';
+import { RACE, catchupMultiplier, packMultiplier, driveVelocity, crossedGate, pointAt, projectDistance, angleDifference, clamp, predictMotion, type Gate, type RaceData } from '../../shared/race.js';
 import type { JsonValue } from '../../shared/types.js';
 import { scoreRound } from '../../server/scoring.js';
 
@@ -212,7 +212,7 @@ test('pomoc při dohánění je plynulá, omezená a na serveru zmenšuje odstup
   assert.equal(catchupMultiplier(-100), 1);
   assert.equal(catchupMultiplier(0), 1);
   assert.equal(catchupMultiplier(RACE.catchupStartDistance), 1);
-  assert.ok(catchupMultiplier(80) > 1 && catchupMultiplier(80) < 1 + RACE.catchupMaxBoost);
+  assert.ok(catchupMultiplier(35) > 1 && catchupMultiplier(35) < 1 + RACE.catchupMaxBoost);
   assert.equal(catchupMultiplier(10000), 1 + RACE.catchupMaxBoost);
   const sim = new RaceSimulation(generateTrack(() => .5, 0, 1500), players.slice(0, 2));
   sim.start();
@@ -220,16 +220,78 @@ test('pomoc při dohánění je plynulá, omezená a na serveru zmenšuje odstup
   cross(sim, 'b', sim.track.start);
   pose(sim, 'a', 180, -4); pose(sim, 'b', 0, 4); sim.step();
   const before = sim.cars.get('a')!.progress - sim.cars.get('b')!.progress;
+  let sawCatchup = false;
   for (let seq = 1; seq <= 1800; seq++) {
     for (const id of ['a', 'b']) sim.acceptInput(id, { throttle: 1, steer: 0, reset: false, seq });
     sim.step();
+    if (sim.cars.get('b')!.catchupBoost > 1.1) sawCatchup = true;
+    assert.ok(sim.cars.get('b')!.catchupBoost <= 1 + RACE.catchupMaxBoost);
   }
   const a = sim.cars.get('a')!, b = sim.cars.get('b')!;
-  assert.equal(a.catchupBoost, 1);
-  assert.ok(b.catchupBoost > 1 && b.catchupBoost <= 1 + RACE.catchupMaxBoost);
-  assert.ok(a.progress - b.progress < before - 40);
-  assert.ok(b.vx > a.vx);
+  assert.ok(sawCatchup);
+  assert.ok(Math.abs(a.progress - b.progress) < before - 40);
   sim.exclude('a'); sim.step();
   assert.equal(b.catchupBoost, 1); // Excluded cars never set the leader's distance.
   sim.dispose();
+});
+
+
+test('aktivní skupina se drží blízko; AFK na startu ani čerstvé neutrální zprávy ji nebrzdí', () => {
+  assert.equal(packMultiplier(0), 1);
+  assert.equal(packMultiplier(RACE.packMaxDistance), RACE.packMinSpeed);
+  const sim = new RaceSimulation(generateTrack(() => .5, 0, 2000), players.slice(0, 3));
+  sim.start();
+  for (const gate of sim.track.checkpoints.slice(0, 3)) cross(sim, 'a', gate);
+  cross(sim, 'b', sim.track.start);
+  pose(sim, 'a', 180, -4); pose(sim, 'b', 20, 4); sim.step();
+  let sawLeaderSlowdown = false;
+  for (let seq = 1; seq <= 2400; seq++) {
+    for (const id of ['a', 'b']) sim.acceptInput(id, { throttle: 1, steer: 0, reset: false, seq });
+    sim.acceptInput('c', { throttle: 0, steer: 1, reset: false, seq });
+    sim.step();
+    if (sim.cars.get('a')!.catchupBoost < .9) sawLeaderSlowdown = true;
+  }
+  const a = sim.cars.get('a')!, b = sim.cars.get('b')!, c = sim.cars.get('c')!;
+  assert.ok(sawLeaderSlowdown);
+  assert.ok(Math.abs(a.progress - b.progress) < RACE.packMaxDistance);
+  assert.ok(Math.min(a.progress, b.progress) > 500);
+  assert.equal(c.progress, 0);
+  assert.ok(a.catchupBoost > .9, 'AFK na startu nesmí udržovat vedoucí auto zpomalené');
+  // The trailing active driver stops but still sends fresh neutral packets.
+  const rear = a.progress < b.progress ? a : b, front = rear === a ? b : a;
+  for (let seq = 2401; seq <= 3000; seq++) {
+    sim.acceptInput(rear.id, { throttle: 0, steer: 0, reset: false, seq });
+    sim.acceptInput(front.id, { throttle: 1, steer: 0, reset: false, seq });
+    sim.step();
+  }
+  assert.equal(front.catchupBoost, 1, 'neaktivní soupeř po šesti sekundách skupinu nebrzdí');
+  sim.dispose();
+});
+
+test('držení plynu bez postupu nepovažuje zaseklé auto za aktivního závodníka', () => {
+  const sim = new RaceSimulation(generateTrack(() => .5, 0, 1500), players.slice(0, 2));
+  sim.start();
+  for (const gate of sim.track.checkpoints.slice(0, 2)) cross(sim, 'a', gate);
+  cross(sim, 'b', sim.track.start);
+  pose(sim, 'a', 140, -4); pose(sim, 'b', 20, 4); sim.step();
+  for (let seq = 1; seq <= 600; seq++) {
+    sim.acceptInput('a', { throttle: 1, steer: 0, reset: false, seq });
+    sim.acceptInput('b', { throttle: 1, steer: 0, reset: false, seq });
+    // Emulate an immobile car against an obstacle, despite valid throttle packets.
+    pose(sim, 'b', 20, 4);
+    sim.step();
+  }
+  assert.equal(sim.cars.get('a')!.catchupBoost, 1);
+  sim.dispose();
+});
+
+test('ve vysoké rychlosti při zatáčení zůstává větší boční smyk a rovně se auto stabilizuje', () => {
+  const motion = { x: 0, y: 0, angle: 0, vx: 24, vy: 8, angularVelocity: 0 };
+  const input = { throttle: 1, steer: 1, reset: false, seq: 1 };
+  const turning = driveVelocity(motion, input, .1);
+  const straight = driveVelocity(motion, { ...input, steer: 0 }, .1);
+  assert.ok(turning.vy > straight.vy);
+  assert.ok(turning.vy > 8 * Math.exp(-1.6 * .1), 'výraznější smyk než předchozí nastavení');
+  assert.ok(turning.angularVelocity > 0);
+  assert.ok(straight.vy < motion.vy);
 });

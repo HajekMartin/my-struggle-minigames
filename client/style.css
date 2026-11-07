@@ -173,3 +173,16 @@ body.racing { overflow: hidden; }
   .player-actions { width: 100%; justify-content: space-between; }
   .code-row { flex-wrap: wrap; }
 }
+
+body.worms { overflow: hidden; }
+#worms-panel { position: fixed; inset: 0; z-index: 100; background: var(--background); }
+#worms-canvas { position: absolute; inset: 0; }
+#worms-canvas canvas { display: block; }
+.worms-hud { position: absolute; z-index: 1; top: 16px; left: 20px; right: 20px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.worms-turn { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; font-size: 14px; }
+.worms-turn label { display: flex; align-items: center; gap: 10px; margin: 0; }
+.worms-turn progress { width: 100px; accent-color: var(--primary); }
+#worms-end { margin-left: auto; min-height: 36px; }
+#worms-players { margin: 10px 0 0; color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+#worms-help { position: absolute; z-index: 1; left: 20px; bottom: 16px; max-width: calc(100% - 220px); margin: 0; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; pointer-events: none; }
+#worms-leave { position: absolute; z-index: 1; right: 20px; bottom: 16px; min-height: 40px; }

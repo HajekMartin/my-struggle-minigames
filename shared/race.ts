@@ -1,28 +1,6 @@
-export const RACE = {
-  targetSeconds: 180,
-  limitSeconds: 300,
-  cruiseSpeed: 24,
-  maxSpeed: 32,
-  reverseSpeed: 10,
-  acceleration: 9,
-  braking: 16,
-  drag: .35,
-  lateralGrip: 5,
-  steeringRate: 1.9,
-  carLength: 3.8,
-  carWidth: 1.8,
-  roadWidth: 22,
-  sampleLength: 6,
-  checkpointSpacing: 80,
-  generationAttempts: 8,
-  physicsHz: 60,
-  snapshotHz: 20,
-  inputTimeoutMs: 300,
-  resetLockMs: 2_000,
-  catchupStartDistance: 25,
-  catchupFullDistance: 150,
-  catchupMaxBoost: .18,
-} as const;
+import { MINIGAME_CONFIG } from './minigames.config.js';
+
+export const RACE = MINIGAME_CONFIG['car-race'];
 
 export interface Point { x: number; y: number }
 export interface Gate extends Point { angle: number; distance: number }
@@ -72,6 +50,11 @@ export function catchupMultiplier(gap: number): number {
   return 1 + RACE.catchupMaxBoost * t * t * (3 - 2 * t);
 }
 
+export function packMultiplier(gap: number): number {
+  const t = clamp((gap - RACE.packSlowStartDistance) / (RACE.packMaxDistance - RACE.packSlowStartDistance), 0, 1);
+  return 1 - (1 - RACE.packMinSpeed) * t * t * (3 - 2 * t);
+}
+
 export function driveVelocity(car: CarMotion, input: DriveInput, dt: number, catchupBoost = 1): CarMotion {
   const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
   let forward = car.vx * fx + car.vy * fy;
@@ -80,7 +63,9 @@ export function driveVelocity(car: CarMotion, input: DriveInput, dt: number, cat
   forward += input.throttle * acceleration * dt;
   forward *= Math.exp(-RACE.drag * dt);
   forward = clamp(forward, -RACE.reverseSpeed, RACE.maxSpeed * catchupBoost);
-  lateral *= Math.exp(-RACE.lateralGrip * dt);
+  const drift = Math.abs(input.steer) * clamp(Math.abs(forward) / 16, 0, 1);
+  const grip = RACE.lateralGrip + (RACE.driftGrip - RACE.lateralGrip) * drift;
+  lateral *= Math.exp(-grip * dt);
   const turn = input.steer * RACE.steeringRate * clamp(Math.abs(forward) / 12, 0, 1) * Math.sign(forward);
   return { ...car, vx: fx * forward - fy * lateral, vy: fy * forward + fx * lateral,
     angularVelocity: car.angularVelocity + (turn - car.angularVelocity) * (1 - Math.exp(-7 * dt)) };

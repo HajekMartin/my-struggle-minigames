@@ -1,12 +1,15 @@
 import { World, Vec2, Box, type Body } from 'planck';
 import type { Player, ResultGroup } from '../../../shared/types.js';
-import { CAR_COLORS, NEUTRAL_INPUT, RACE, catchupMultiplier, clamp, crossedGate, driveVelocity, pointAt, projectDistance,
+import { CAR_COLORS, NEUTRAL_INPUT, RACE, catchupMultiplier, packMultiplier, clamp, crossedGate, driveVelocity, pointAt, projectDistance,
   type DriveInput, type Point, type RaceCarState, type RaceSnapshot, type RaceTrack } from '../../../shared/race.js';
 
 interface Car extends RaceCarState {
   body: Body | null;
   input: DriveInput;
   lastInputMs: number;
+  lastControlMs: number;
+  lastAdvanceMs: number;
+  furthestProgress: number;
 }
 
 export class RaceSimulation {
@@ -34,7 +37,8 @@ export class RaceSimulation {
         id: player.id, name: player.name, color: CAR_COLORS[index % CAR_COLORS.length],
         x, y, angle: 0, vx: 0, vy: 0, angularVelocity: 0, status: 'racing', progress: 0,
         nextCheckpoint: 0, finishMs: null, ack: 0, lockedUntil: 0, resetPending: false,
-        resetSerial: 0, collisions: 0, catchupBoost: 1, body, input: { ...NEUTRAL_INPUT }, lastInputMs: -Infinity
+        resetSerial: 0, collisions: 0, catchupBoost: 1, body, input: { ...NEUTRAL_INPUT }, lastInputMs: -Infinity,
+        lastControlMs: -Infinity, lastAdvanceMs: -Infinity, furthestProgress: 0
       });
     });
     this.world.on('begin-contact', contact => {
@@ -55,6 +59,7 @@ export class RaceSimulation {
         typeof data.reset !== 'boolean' || !Number.isSafeInteger(data.seq) || data.seq! <= car.input.seq) return;
     car.input = { throttle: data.throttle, steer: data.steer, reset: car.input.reset || data.reset, seq: data.seq! };
     car.lastInputMs = this.elapsedMs;
+    if (Math.abs(data.throttle) > .1 || Math.abs(data.steer) > .1) car.lastControlMs = this.elapsedMs;
   }
 
   exclude(id: string) {
@@ -95,10 +100,17 @@ export class RaceSimulation {
   step() {
     if (this.disposed || !this.running) return;
     const dt = 1 / RACE.physicsHz;
+    // Only cars actually driven forward recently may hold back the pack. Neutral
+    // heartbeats, steering at the start and holding throttle against a wall don't qualify.
+    const active = [...this.cars.values()].filter(car => car.status === 'racing' &&
+      car.progress >= RACE.activeStartDistance && this.elapsedMs - car.lastControlMs < RACE.activeTimeoutMs &&
+      this.elapsedMs - car.lastAdvanceMs < RACE.activeTimeoutMs);
+    const rearProgress = active.length >= 2 ? Math.min(...active.map(car => car.progress)) : null;
     const leaderProgress = Math.max(0, ...[...this.cars.values()].filter(car => car.status !== 'excluded').map(car => car.progress));
     for (const car of this.cars.values()) {
       if (!car.body || car.status !== 'racing') continue;
-      car.catchupBoost = catchupMultiplier(leaderProgress - car.progress);
+      const slowdown = rearProgress !== null && active.includes(car) ? packMultiplier(car.progress - rearProgress) : 1;
+      car.catchupBoost = catchupMultiplier(leaderProgress - car.progress) * slowdown;
       if ((car.input.reset || car.resetPending) && this.elapsedMs >= car.lockedUntil) this.reset(car);
       car.input.reset = false;
       car.ack = car.input.seq;
@@ -126,6 +138,10 @@ export class RaceSimulation {
       const low = car.nextCheckpoint ? this.track.checkpoints[car.nextCheckpoint - 1].distance : this.track.start.distance;
       const high = this.track.checkpoints[car.nextCheckpoint]?.distance ?? this.track.finish.distance;
       car.progress = car.status === 'finished' ? this.track.length : clamp(clamp(projected, low, high) - this.track.start.distance, 0, this.track.length);
+      if (car.progress >= car.furthestProgress + RACE.activeProgressStep) {
+        car.furthestProgress = car.progress;
+        car.lastAdvanceMs = this.elapsedMs;
+      }
       const velocity = car.body.getLinearVelocity();
       Object.assign(car, { x: after.x, y: after.y, angle: car.body.getAngle(), vx: velocity.x, vy: velocity.y, angularVelocity: car.body.getAngularVelocity() });
       if (car.status === 'finished') { this.world.destroyBody(car.body); car.body = null; }
@@ -133,7 +149,7 @@ export class RaceSimulation {
   }
 
   snapshot(): RaceSnapshot {
-    return { elapsedMs: this.elapsedMs, running: this.running, cars: [...this.cars.values()].map(({ body, input, lastInputMs, ...state }) => ({ ...state })) };
+    return { elapsedMs: this.elapsedMs, running: this.running, cars: [...this.cars.values()].map(({ body, input, lastInputMs, lastControlMs, lastAdvanceMs, furthestProgress, ...state }) => ({ ...state })) };
   }
 
   results(): ResultGroup[] {
